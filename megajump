@@ -1,0 +1,1108 @@
+'''This program is an up-down scroller game. There is constant gravity in this game, which
+causes players to die if they fall too low. Coins are abundantly spawned, which increases the
+player's score as well as gives the player a small boost upwards. There are also other items that help
+the user move up, including stars (gives the player a larger boost), springs, item blocks
+(may release an item when broken), and numerous powerups. There are also obstacles,
+for example enemies that spike you when touched, or fields of red coins that move around
+and make it easy to fall through. The point of this game is to get as high as possible
+without dying, meanwhile collecting as many coins and bonuses as possible. There are infinite
+levels, which increases your score according to how far in the game you are.''' 
+
+
+
+
+
+from pygame import *
+from random import *
+from background import *
+
+init()
+
+
+
+#COUNTDOWN-------------------------------------------------------------------------------------------
+#At the beginning of the game, there is a 3-second countdown, in which the
+#character can strafe around (but not move up or down)
+
+time.set_timer(USEREVENT,1000) #Creates an event that occurs every second. Better than freezing the whole program
+updateSeconds = False #A flag that keeps track of when to change the text in the initial countdown
+currentSecond = 3 #The number of seconds left on the countdown
+startFlag = False #If the start text should be blitted
+
+def countDown():
+    '''This function makes all the changes during the initial countdown, such
+as check the time, update pictures, update the time, and tell when to start'''
+    global updateSeconds,currentSecond,startFlag
+    if currentSecond == -1:
+        #Since this is continously called after the countdown, it is necessary
+        #to quit the function here if this is the case.
+        return
+    charStartPic = image.load("pics/chars/front.png").convert_alpha()
+    charLeftPic = image.load("pics/chars/side0.png").convert_alpha()
+    charRightPic = image.load("pics/chars/side1.png").convert_alpha()
+    redford.pic = charStartPic #Default image
+    if keys[K_LEFT]:
+        redford.pic = charLeftPic
+    elif keys[K_RIGHT]:
+        redford.pic = charRightPic
+    if updateSeconds:
+        currentSecond -= 1 
+        if currentSecond == 0:
+            currentSecond = -1
+            startBoost()
+            startFlag = True
+        updateSeconds = False
+    redford.height = 0 #We keep the height constantly at 0 so that
+                       #our guy won't move up or down during countdown
+    
+def drawCountDown():
+    '''Draws the text on the screen during the coutndown and tells when to
+    draw the START text after the countdown finishes'''
+    global startFlag,currentSecond
+    if currentSecond > 0 :
+        print(currentSecond)
+        txt = countDownTxt.render(str(currentSecond),True,(255,165,0))
+        center(txt,(400,300),True)
+    if startFlag:
+        drawStart()
+
+        
+def startBoost():
+    '''The boost given to the character when the game starts'''
+    Boosts(100, 10).giveBoost(redford)
+    redford.giveInv(100)
+
+startFrame = 0 #A variable used to keep track of number of frames since the start
+#This helps us to know which frame of the start text to blit
+def drawStart():
+    '''Draws the start text'''
+    global startFrame,startFlag,startFrame
+    startTxt = startPics[startFrame//5] #Changes sprites every 5 frames
+    startFrame += 1
+    if startFrame//5 == 10:
+        startFlag = False
+    center(startTxt,(400, 300),True)
+
+    
+
+display.set_mode((1, 1)) #Set here so we are allowed to get images
+startPics = [image.load('pics/countdown/start' + str(i) + '.png').convert_alpha() for i in range(11)]
+
+
+#----------------------------------------------------------------------------------------------------------
+class Character:
+    '''This class controls everything that happens to the player. This includes
+    moving, blitting, powerup effects, etc.'''
+    
+    charUp = [image.load('pics/chars/up' + str(x) + '.png').convert_alpha() for x in range(8)]
+    charSide = [image.load('pics/chars/side' + str(x) + '.png').convert_alpha() for x in range(2)]
+    balloonPic = image.load("pics/powerups/balloon/balloonford.png").convert_alpha()
+    umbrellaPic = image.load("pics/powerups/umbrella/umbrellaChar.png").convert_alpha()
+    glowPic = image.load("pics/powerups/magnet/glow.png").convert_alpha()
+    firePics = [image.load("pics/powerups/fireball/FireBall"+str(i)+".png").convert_alpha() for i in range(3)]
+    
+    def __init__(self):
+        
+        self.pos = 400 #Left-right position on the screen
+        self.height = 0 #Height in the world
+        self.maxheight = 0 #The highest hes ever reached in the world
+        self.rect = 0 #The hitbox
+        self.lastmax = 0 #The maxheight the previous frame
+        self.speed = 0
+        self.boosts = [] 
+        self.invinsible = False
+        self.invTime = 0 #How much time on the invinsibility left
+        self.leftMove = False
+        self.rightMove = False
+        self.holdKey = [0, 0] #Matrix used to show how long the left/right key has been held for
+        self.powerUp = "none" #Current powerup
+        self.powerTime = 0 #Time left on powerup
+        self.pic = "" #Pic that will be blit on the screen
+        self.coinCount = 0 #Number of collected coins
+        self.hundredsCount = 1 #Variable to help prevent skipping boosts (some items add more than 1 to coinCount)
+
+    def charMove(self,pos):
+        '''Moves the character, and determines the character's new position,
+        new height, new maxheight, etc'''
+        self.rect = Rect(self.pos-self.charUp[0].get_width()//2,self.height+300-self.charUp[0].get_height()//2,self.charUp[0].get_width(),self.charUp[0].get_height()) #Hitbox
+        self.lastmax = self.maxheight
+        self.lastHeight = self.height
+        if keys[K_LEFT]:
+            self.pos -= 4
+            self.leftMove = True
+            self.holdKey[0] += 1 #Increase left time by 1 
+            self.holdKey[1] = 0 #Right hold becomes 0
+        elif keys[K_RIGHT]:
+            self.pos += 4
+            self.rightMove = True
+            self.holdKey[1] += 1 #Increase left time by 1 
+            self.holdKey[0] = 0 #Right hold becomes 0
+        else:
+            self.holdKey = [0,0]
+        if self.pos >= 800: #Forces player to stay inside the map.
+            self.pos = 0
+        elif self.pos <= 0:
+            self.pos = 800
+        
+        self.speed -= 0.1 #Represents gravity
+        self.height += int(self.speed)
+        self.maxheight = max(self.maxheight,self.height)
+        
+        if self.height + 1200 < self.maxheight:
+            self.die()
+
+            
+        return self.pos
+
+    def giveInv(self, time):
+        '''Gives the player invinsibility for an amount of time'''
+        self.invTime = max(time, self.invTime)
+        self.invinsible = True
+
+    def checkInv(self):
+        '''Makes the player invinsible, removes time from the player's invinsibility
+        and resets to False once time runs out'''
+        if self.invinsible:
+            self.invTime -= 1
+        if self.invTime > 0:
+            self.invinsible = True
+        else:
+            self.invinsible = False
+
+    def powerUpEff(self):
+        '''Gives effect to the player based on powerup'''
+        if self.powerUp == "balloon": #Floats upwards at constant speed
+            self.speed = max(self.speed,8) #Char rises with a minimum possible speed of 8 (more if you hit boosts)
+            self.pic = self.balloonPic
+            self.rect = Rect(self.pos-self.balloonPic.get_width()//2,self.height+300-self.balloonPic.get_height()//2,self.balloonPic.get_width(),self.balloonPic.get_height())
+
+        if self.powerUp == "lucky": #Turns all nearby items into stars and continues to spawn only stars
+            objects = [coinLocations,starLocations,blockLocations,itemBlocks,sideEnemies,upDownEnemies,powerUps] #2D list of all objects in the game
+            for lst in objects:
+                for obj in lst:
+                    #Removes an item and replaces with a star
+                    lst.remove(obj)
+                    starLocations.append(Stars(obj.x,obj.y,"red"))
+                    
+        if self.powerUp == "umbrella": #Slows falling
+            if self.speed < 0: 
+                self.speed = -1 #Slows down fall by keeping gravity constant
+                self.pic = self.charUp[7]
+
+        if self.powerUp == "magnet": #Attracts coins
+            for coin in coinLocations:
+                dist = max(1,((self.height+300-coin.y)**2 + (self.pos-coin.x)**2)**0.5)
+                coin.x += (self.pos-coin.x)*11/dist
+                coin.y += (self.height+300-coin.y)*11/dist
+
+        if self.powerUp == "fireball": #Speeds upwards (really fast)
+            self.speed = 20
+            self.pic = self.charUp[0]
+
+        if self.powerUp == "ballchain": #Increases gravity
+            self.speed -= 0.05 
+            
+        if self.powerUp == "shrinker":
+            #Makes player small, reduces player's size and hitbox
+            self.pic = transform.scale(self.pic,(self.pic.get_width()//2,self.pic.get_height()//2))
+            self.rect = Rect(self.pos-self.pic.get_width()//2,self.height+300-self.pic.get_height()//2,self.pic.get_width(),self.pic.get_height())     
+        
+    def powerTimer(self):
+        '''Reduces powerup time and checks when the powerup ends, then removes it'''
+        
+        self.powerTime = max(0,self.powerTime-1)
+        if self.powerTime == 0:
+            self.powerUp = "none"
+        else:
+            self.powerUpEff()
+    
+    def getPic(self):
+        '''Determines the picture used to be blit on the screen.
+        This picture changes depending on how fast you move upwards and
+        if you are holding left or right'''
+        if self.leftMove and self.holdKey[0] > 10:
+            img = self.charSide[0]
+        elif self.rightMove and self.holdKey[1] > 10:
+            img = self.charSide[1]
+        else:
+            if self.speed > 5:
+                img = self.charUp[0]
+            elif self.speed > 3.5:
+                img = self.charUp[1]
+            elif self.speed > 1.5 :
+                img = self.charUp[2]
+            elif self.speed > -0.5 :
+                img = self.charUp[3]
+            elif self.speed > -1 :
+                img = self.charUp[4]
+            elif self.speed > -1.5 :
+                img = self.charUp[5]
+            elif self.speed > -2 :
+                img = self.charUp[6]
+            else:
+                img = self.charUp[7]
+        self.leftMove = False
+        self.rightMove = False
+        self.pic = img
+        
+    fireFrame = 1 #Transitions between 0,1,2,1,0... between frames
+    firePlus = 1 #How much to add the Frame by.
+    fireFrameDelay = 4 #The frame updates after this many frames
+    
+    def drawChar(self):
+        
+        '''Draws the character itself, and any add-ons'''
+        
+        if self.powerUp == "umbrella": #Draws a blue umbrella over the player
+            if self.speed < 0:
+                center(self.umbrellaPic,(self.pos-30,257),True)
+
+        if self.powerUp == "magnet": #Produces a glow behind the player
+            center(self.glowPic,(self.pos,300),True)
+
+        if self.powerUp == "fireball": #Creates a fire animation behind player
+            self.fireAnimation()
+            
+        center(self.pic,(self.pos,300),True)
+        
+    def fireAnimation(self):
+        '''Creates the fire animation by looping through sprites'''
+        
+        self.fireFrameDelay -= 1
+        if self.fireFrameDelay == 0:
+            self.fireFrameDelay = 4 #Resets delay
+            self.fireFrame += self.firePlus
+            if self.fireFrame == 0 or self.fireFrame == 2:
+                self.firePlus *= -1
+        center(self.firePics[self.fireFrame],(self.pos,450),True)
+    
+    def checkCoinCount(self):
+        '''Checks the number of coins the player has and gives a boost
+        for every 100 the player collects. The hundredsCount variable is just
+        there so the hundred mark is not skipped by collecting 2 coins at the
+        same time.'''
+        
+        if self.coinCount >= 100*self.hundredsCount:
+            Boosts(100,10).giveBoost(self)
+            self.hundredsCount += 1
+
+                    
+    def timer(self):
+        '''Updates the times of all timers, e.g. invinsibility, powerups,etc.'''
+
+        for each in self.boosts:
+            each.boostTime(self)#Updates each boost
+            self.speed = each.boost #Gives boost effect
+        self.checkInv()
+        self.getPic()
+        self.powerTimer()
+
+    def die(self):
+        '''Stops the program'''
+        
+        global running
+        running = False
+        
+    def updateChar(self):
+        '''All the updates made to the character, such as speed, boosts, coins'''
+        self.pos = self.charMove(self.pos)
+        self.timer()
+        self.checkCoinCount()
+    def collideObject(self,x,y):
+        '''Determines if the character hits an item, tries all point between
+        where the character was last frame and is this frame to avoid
+        it 'missing' items'''
+        
+        rng = abs(self.height-self.lastHeight)
+        for i in range(rng):
+            compareRect = Rect(self.rect.left,self.rect.top-i,self.rect.width,self.rect.height)
+            if compareRect.collidepoint(x,y):
+                return True
+        return False
+#Drawing the top panel------------------------------------------------------
+    
+coinSignPic = image.load("pics/toppanel/coinSign.png").convert_alpha()
+levelBonus = 0 #You get bonus points as you complete levels
+scoreTxt = font.Font("Twelve Ton Goldfish.ttf",40)
+
+def drawCoinTxt():
+    '''Draws the text displaying number of coins%100'''
+    
+    coinTxt = scoreTxt.render(str(redford.coinCount%100),True,(255,165,0))
+    screen.blit(coinTxt,(80,5))
+    
+def getScore():
+    '''Returns the score of the user based on height, coins, and level bonus'''
+    
+    return int(redford.maxheight/1.2) + redford.coinCount*10 + levelBonus
+
+def drawScoreTxt():
+    '''Draws the score of the user on the screen'''
+    
+    coinTxt = scoreTxt.render(str(getScore()),True,(255,165,0))
+    screen.blit(coinTxt,(650,5))
+    
+itemBoxPic = image.load("pics/toppanel/itembox.png").convert_alpha()
+def drawItemBox():
+    '''Creates the box displaying what item is in effect'''
+    
+    center(itemBoxPic,(300,40),True)
+    
+def checkFlashItem():
+    '''Checks if the item flashes or not in the current frame'''
+    
+    on = [range(210,800),range(150,180),range(90,120),range(30,60)]
+    #List of ranges where the item appears. You can easily find the spots
+    #where items don't appear and make a flashing animation.
+    for i in on:
+        if redford.powerTime in i:
+            return True
+    return False
+
+def drawItem():
+    '''Draws the item inside of the item box'''
+    
+    if checkFlashItem(): #Does not draw for some periods when flashing
+        if redford.powerUp == "balloon":
+            center(PowerUps.balloonImg,(300,40),True)
+        if redford.powerUp == "umbrella":
+            center(PowerUps.umbrellaImg,(300,40),True)
+        if redford.powerUp == "lucky":
+            center(PowerUps.luckyImg,(300,40),True)
+        if redford.powerUp == "magnet":
+            center(PowerUps.magnetImg,(300,40),True)
+        if redford.powerUp == "fireball":
+            center(PowerUps.fireballImg,(300,40),True)
+        if redford.powerUp == "ballchain":
+            center(PowerUps.ballchainImg,(300,40),True)
+        if redford.powerUp == "shrinker":
+            center(PowerUps.shrinkerImg,(300,40),True)
+            
+def drawTopPanel():
+    '''Draws all the items on the top panel'''
+    
+    drawCoinTxt()
+    drawScoreTxt()
+    screen.blit(coinSignPic,(5,5))
+    drawItemBox()
+    drawItem()
+    
+#---------------------------------------------------------------------
+#Spawn Items----------------------------------------------------------
+#Game screen split into a 40x30 rectangle, with each cell being 20x20
+#This section spawns items in patterns, as well as randomly
+spawningHeight = 650 #The height where items have been determined for a given "chunk"
+mapHeight = 0 #How high the character is, therefore where the spawning needs to occur
+randomFlag = False #If the chunk will be random. If not, it will be patterned
+
+def getPattern(height):
+    '''Takes a random pattern of items from a text file and converts it into a list
+    and adds the height of it to the spawningHeight, telling the program not to spawn
+    in the same chunk again. If randomFlag is true, however, this program
+    refers to randomSpawn() to create a similar list, but randomly.'''
+    global spawningHeight,mapHeight,randomFlag
+    
+    randomFlag = False
+    if randint(1,7) == 1: #1/7 chance of spawning a pattern
+        patternNum = randint(1,11)
+        itemLines = open("itemPatterns/pattern"+str(patternNum)+".txt").read().split("\n")
+        spawningHeight += len(itemLines)*20 #Each cell has size 20.
+        mapHeight = height
+        return itemLines[::-1] #Reversed, since you need to spawn the bottom ones
+        #first.
+    
+    else:
+        spawningHeight += 600 #Spawns a 600 high random chunk
+        randomFlag = True
+        return "random"
+
+def createItems(itemList):
+    '''Spawns all the items in a single line'''
+    
+    global mapHeight
+    
+    if itemList == "random":
+        randomSpawn()
+        
+    else:
+        try: #Try needs to be here since if you are going downwards, it might make
+            #lineInd negative. We don't need to do anything in this case.
+            lineInd = (redford.height-mapHeight)//20 #The index of the line about to be spawned
+            line = itemList[lineInd]
+            line += " "*(40-len(line)) #If line is less than 40, fills in with spaces
+            itemList[lineInd] = ' '*40 #Replaces line with spaces, so it doesn't need to respawn items on top of existing ones later
+            convertLine(line)
+        except:
+            pass
+
+def convertLine(line): 
+    '''Each type of spawnable item has a unique 1-digit code (look below)
+    this function simply takes a string of these codes and spawns the corresponding items'''
+
+    for i in range(40): #Loops through each character in the line
+        char = line[i]
+        itemX,itemY = i*20,redford.height+650
+        0
+        if char == "x": 
+            item = Coins(itemX,itemY)
+            if randomFlag == False:
+                item.size= 20
+            coinLocations.append(item)
+        if char == "r":
+            redCoinLocations.append(RedCoins(itemX,itemY))
+        if char == "s": 
+            starLocations.append(Stars(itemX,itemY))
+        if char == "b": 
+            blockLocations.append(Blocks(itemX,itemY))
+        if char == "i": 
+            itemBlocks.append(ItemBlock(itemX,itemY))
+        if char == "e": 
+            sideEnemies.append(SideEnemy(itemX,itemY))
+        if char == "E": 
+            upDownEnemies.append(UpDownEnemy(itemX,itemY))
+        if char == "p": #A random powerup
+            powerUps.append(PowerUps("random",itemX,itemY))
+            
+def randomSpawn():
+    '''Produces a line of randomly spawned items'''
+    
+    if redford.height == redford.maxheight and redford.speed > 5: #Needed to help
+        #prevent spawning on the same line twice.
+        
+        line = ""
+        for i in range(40): #Adds items to the line randomly.
+            if randint(1, 350) == 1: #Coin
+                line += "x"
+            elif randint(1, 2000) == 1: #Star
+                line += "s"
+            elif randint(1, 8000) == 1: #side enemy
+                line += "e"
+            elif randint(1, 8000) == 1: # up-down enemy
+                line += "E"
+            elif randint(1,10000) == 1: #Powerup
+                line += "p"
+            else:
+                line += " " #A blank
+        convertLine(line) #Converts it into items
+
+currentItemList = getPattern(0) #On the first frame, you start the spawning
+#at 0.
+def spawnItems():
+    '''Combines all the operations needed to spawn items both randomly
+    and patterned'''
+    global currentItemList
+    
+    if spawningHeight - redford.height <= 600: #Gets the pattern once the
+        #region is close enough.
+        currentItemList = getPattern(redford.height)
+    createItems(currentItemList)
+
+
+#------------------------------------------------------------------------
+
+    
+class Coins: #Basic coins, gives you a small boost and adds to your score.
+    coinPics = [image.load('pics/coins/coin' + str(i) + '.png').convert_alpha() for i in range(5)]
+
+    def __init__(self, x, y,size = "random"):
+        
+        self.x = x
+        self.y = y
+        self.frameCt = 0 #Frame of the coin sprite
+        self.size = randint(15,30) if size=="random" else size#Makes coins a random size for visual appeal
+
+    def updateCoins(self):
+        '''Removes coins that the player touches, gives a boost and adds to
+        the player's coins. Also removes coins that are too far beneath the
+        player in order to reduce lag.'''
+        
+        if redford.collideObject(self.x,self.y):
+            coinLocations.remove(self)
+            Boosts(0, 9).giveBoost(redford)
+            redford.coinCount += 1
+        if redford.height - self.y > 800:
+            coinLocations.remove(self)
+        self.updateFrame()
+
+    def updateFrame(self):
+        '''Changes the sprite frame'''
+        
+        if frameDelay == 0:
+            self.frameCt = (self.frameCt + 1) % 5
+
+    def drawItem(self):
+        '''Transforms the coin picture based on the size of the coin
+        and blits the appropriate sprite'''
+        
+        coinPic = transform.smoothscale(self.coinPics[self.frameCt],(self.size,self.size))
+        center(coinPic, screenCoords(self.x,self.y),True)
+        
+class RedCoins: #Coins that move around, only spawns in large groups.
+    redCoinPics = [image.load('pics/redcoins/redcoin' + str(i) + '.png').convert_alpha() for i in range(5)]
+
+    def __init__(self,x,y):
+        self.x = x
+        self.y = y
+        self.direction = choice([2,-2]) #2 means right, -2 is left
+        self.minX = 0 #The range of which the coin can travel
+        self.maxX = 800
+        self.frameCt = 0
+
+    def updateRedCoins(self):
+        '''Basically the same as the updateCoins() for the regular Coins class'''
+        self.move()
+        if redford.collideObject(self.x,self.y):
+            redCoinLocations.remove(self)
+            Boosts(0, 9).giveBoost(redford)
+            redford.coinCount += 1
+            if redford.height - self.y > 800:
+                coinLocations.remove(self)
+        self.updateFrame()
+        
+    def move(self):
+        '''Moves the coin around, and changes its direction'''
+        
+        self.x += self.direction
+        if self.x <= self.minX or self.x >= self.maxX: #Changes direction when it hits the boundary
+            self.direction *= -1
+            
+    def updateFrame(self):
+        if frameDelay == 0:
+            self.frameCt = (self.frameCt + 1) % 5
+            
+    def drawRedCoin(self):
+        coinPic = self.redCoinPics[self.frameCt]
+        center(coinPic, screenCoords(self.x,self.y),True)
+        
+
+class Stars: #Give boosts greater than coins and adds 3 points to coinCount instead of 1.
+    
+    boostTimes = {"red":100,"green":75,"blue":50,"yellow":25} #Points a star type to how long it boosts for.
+    starPics = {"red":image.load('pics/stars/redstar.png').convert_alpha(),"green":image.load('pics/stars/greenstar.png').convert_alpha(),"blue":image.load('pics/stars/bluestar.png').convert_alpha(),"yellow":image.load('pics/stars/yellowstar.png').convert_alpha()}
+
+    def __init__(self, x, y, typ = "random"):
+        self.x = x
+        self.y = y
+        if typ == "random": 
+            self.typ = choice(["red","blue","green","yellow"])
+        else:
+            self.typ = typ
+        
+    def updateStars(self):
+        '''Nothing new here'''
+        
+        if redford.rect.collidepoint(self.x, self.y):
+            starLocations.remove(self)
+            Boosts(self.boostTimes[self.typ], 10).giveBoost(redford)
+            redford.giveInv(100)
+            redford.coinCount += 3
+            
+        if redford.height - self.y > 800:
+            starLocations.remove(self)
+
+    def drawItem(self):
+        '''Still nothing new'''
+        center(self.starPics[self.typ], screenCoords(self.x,self.y),True)
+
+class Boosts: #Creates boosts for the player
+
+    def __init__(self, time, boost):
+        self.time = time #Length of boost
+        self.boost = boost #Speed of boost
+
+    def giveBoost(self, target):
+        '''I originally did this overcomplicated 'target' thing because I
+        intended to make a second player (Idea given to me by Shiyang)
+        This function adds the boost to the player's boosts'''
+        self.target = target
+        if self in self.target.boosts:
+            self.target.boosts.remove(self)
+            self.target.boosts.append(self)
+        if self not in self.target.boosts and self.target.speed < self.boost:
+            self.target.speed = self.boost
+            self.target.boosts.append(self)
+
+    def boostTime(self, target):
+        '''Changes the length of the boost, and ends the boost when the time ends'''
+        self.time -= 1
+        self.target = target
+        if self.time <= 0:
+            self.endBoost(self.target)
+
+    def endBoost(self, target):
+        '''Removes the boost from the player'''
+        if self in self.target.boosts:
+            self.target = target
+            self.target.speed -= self.boost
+            self.target.boosts.remove(self)
+            
+class PowerUps: #Items that give special effects.
+    powerOrder = ["none","shrinker","ballchain","lucky","umbrella","magnet","balloon","fireball"]
+    #Images----------------------------------------------------------------------
+    balloonImg = image.load("pics/powerups/balloon/balloon.png").convert_alpha()
+    luckyImg = image.load("pics/powerups/lucky blast/lucky.png").convert_alpha()
+    umbrellaImg = image.load("pics/powerups/umbrella/umbrella.png").convert_alpha()
+    magnetImg = image.load("pics/powerups/magnet/magnet.png").convert_alpha()
+    fireballImg = image.load("pics/powerups/fireball/fireball.png").convert_alpha()
+    ballchainImg = image.load("pics/powerups/ballchain/ballchain.png").convert_alpha() 
+    shrinkerImg = image.load("pics/powerups/shrinker/shrink.png").convert_alpha()
+
+    def __init__(self,typ,x,y):
+        
+        self.typ = choice(self.powerOrder[1:]) if typ == "random" else typ
+        self.x = x
+        self.y = y
+        
+    def updatePUp(self):
+        '''When hit by player, this function removes the powerup, gives the
+        player the effect, and adds 5 to the player's coin count. It also
+        removes coins below the player'''
+        
+        if redford.rect.collidepoint(self.x,self.y):
+            self.die()
+            self.giveEff()
+            redford.coinCount += 5
+        if redford.height - self.y > 800:
+            powerUps.remove(self)
+            
+    def die(self):
+        '''Destroys the powerup'''
+        powerUps.remove(self)
+        
+    def giveEff(self):
+        '''Adds the immediate effect of the powerup, such as invinsibility, speed
+        and create powerTime. Other effects are located in Character class'''
+        
+        redford.speed = 8
+        if self.powerOrder.index(self.typ) >= self.powerOrder.index(redford.powerUp): #Only gives PUp if it is better than the current one
+            redford.powerUp = self.typ
+            if self.typ == "balloon": #Makes you float upwards, makes you invinsible
+                redford.powerTime = 800
+                redford.giveInv(800)
+            if self.typ == "lucky": #Turns all objects into red stars
+                redford.powerTime = 800
+            if self.typ == "umbrella":
+                redford.powerTime = 800
+            if self.typ == "magnet":
+                redford.powerTime = 800
+            if self.typ == "fireball":
+                redford.powerTime = 600
+                redford.giveInv(600)
+            if self.typ == "ballchain": #Makes you fall faster (not really a powerup)
+                redford.powerTime = 800
+            if self.typ == "shrinker":
+                redford.powerTime = 800
+                
+
+    def drawPUp(self):
+        '''Draws the item on the screen'''
+        
+        if self.typ == "balloon":
+            center(self.balloonImg,screenCoords(self.x,self.y),True)
+        if self.typ == "lucky":
+            center(self.luckyImg,screenCoords(self.x,self.y),True)
+        if self.typ == "umbrella":
+            center(self.umbrellaImg,screenCoords(self.x,self.y),True)
+        if self.typ == "magnet":
+            center(self.magnetImg,screenCoords(self.x,self.y),True)
+        if self.typ == "fireball":
+            center(self.fireballImg,screenCoords(self.x,self.y),True)
+        if self.typ == "ballchain":
+            center(self.ballchainImg,screenCoords(self.x,self.y),True)
+        if self.typ == "shrinker":
+            center(self.shrinkerImg,screenCoords(self.x,self.y),True)
+        
+class Blocks:
+    #Springs that give you a larger boost than coins. Doesn't get removed when
+    #bounced on.
+    blockPics = [image.load('pics/bounceblocks/bounce' + str(x) + '.png').convert_alpha() for x in range(2)]
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def bounce(self, target):
+        '''Gives the player a small boost'''
+        
+        self.target = target
+        Boosts(0, 10).giveBoost(self.target)
+
+    def updateBlocks(self):
+        if redford.collideObject(self.x,self.y-self.blockPics[0].get_height()//2):
+            if redford.invinsible: #Only dies if hit from the bottom and the player is invinsible
+                self.die()
+        elif redford.collideObject(self.x,self.y+self.blockPics[0].get_height()//2):
+            if redford.speed < 0: #Gives bounce when hit from top
+                self.bounce(redford)
+                
+        if redford.height - self.y > 800: #Removes low coins
+            blockLocations.remove(self)
+
+    def drawItem(self):
+        pic = self.blockPics[1] if redford.collideObject(self.x, self.y) else self.blockPics[0]
+        center(pic, screenCoords(self.x,self.y),True)
+
+    def die(self):
+        blockLocations.remove(self)
+
+class ItemBlock: #A block that can be bounced on. After one bounce, half the block
+    #breaks, revealing the item inside. After 2 bounces, the block breaks and
+    #spawns the item inside.
+    
+    pics = [image.load('pics/itemblocks/block' + str(x) + '.png').convert_alpha() for x in range(2)]
+    items = ['coin']*5+ ['star']*5 + ['none']*10 #Chances of spawning each
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.phase = 0 #Which step of the breaking process the block is on.
+        self.item = 0
+
+    def bounce(self, target):
+        '''Only gives a very small bounce'''
+        self.target = target
+        Boosts(0, 4).giveBoost(self.target)
+
+    def remove(self):
+        '''Destroys self and spawns an item in the same place'''
+        itemBlocks.remove(self)
+        if self.item == 'coin':
+            coinLocations.append(self.newItem)
+        if self.item == 'star':
+            starLocations.append(self.newItem)
+
+    def updateBlocks(self):
+        '''Does the regular update class method. Also updates the 'phase' of
+        the block (number of times it was bounced on)'''
+        
+        if redford.collideObject(self.x,self.y-self.pics[0].get_height()//2):
+            if redford.invinsible: #Dies immediately if invinsible
+                self.die()
+                
+        elif redford.collideObject(self.x,self.y+self.pics[0].get_height()//2):
+           if redford.speed < 0: #Otherwise, advances the phase of the block
+                self.phase += 1
+                self.bounce(redford)
+                
+        if self.phase == 1: #Draws an item inside the block
+            if self.item == 0:
+                self.item = choice(self.items)
+                if self.item == 'coin':
+                    self.newItem = Coins(self.x,self.y)
+                if self.item == 'star':
+                    self.newItem = Stars(self.x,self.y,"random")
+
+            if self.item != "none": #Allows the item to animate
+                if type(self.newItem) == Coins:
+                    self.newItem.updateFrame()
+
+        if self.phase == 2: #Destroys at this phase
+            self.remove()
+            
+        if redford.height - self.y > 800:
+            itemBlocks.remove(self)
+
+    def die(self): #Kills the item without spawning an item
+        itemBlocks.remove(self)
+
+    def drawSelf(self):
+        '''Draws the block itself'''
+        
+        if self.phase == 1 and self.item != "none":
+            self.newItem.drawItem()
+            
+        pic = self.pics[self.phase]
+
+        center(pic,screenCoords(self.x,self.y),True)
+
+class SideEnemy: #Enemy that moves side to side. Enemies spike you and make it
+    #easier to die
+    
+    pics = [image.load('pics/enemies/yoohoo/yoohoo' + str(x) + '.png').convert_alpha() for x in range(2)]
+
+    def __init__(self, x, y):
+        self.minX = x #Range
+        self.maxX = x + 300
+        self.x = x
+        self.y = y
+        self.direction = 1
+
+    def move(self):
+        '''Moves the character in a range. Once it reaches a certain point, the
+        character turns around and continues the other way.'''
+        self.x += self.direction
+        if self.x == self.minX or self.x == self.maxX:
+            self.direction *= -1 #Turns around at a point
+
+    def spike(self, target):
+        self.target = target
+        self.target.speed = -2 #Reduces player's speed
+        sideEnemies.remove(self) #Enemy dies
+        self.target.boosts = []
+        self.target.powerUp = "none"
+
+    def killed(self, target): #Player jumps if hits the enemy on the head
+        self.target = target
+        sideEnemies.remove(self)
+        Boosts(0, 9).giveBoost(self.target)
+
+    def die(self):
+        sideEnemies.remove(self)
+
+    def drawEnemy(self):
+        pic = self.pics[int(0.5 + self.direction/2)]
+        center(pic, screenCoords(self.x, self.y),True)
+
+    def updateEnemy(self):
+        self.move()
+        if redford.collideObject(self.x,self.y-self.pics[0].get_height()//2):
+            if redford.invinsible:
+                self.die()
+            else:
+                self.spike(redford)
+        elif redford.collideObject(self.x,self.y+self.pics[0].get_height()//2):
+            if redford.speed < 0:
+                self.killed(redford)
+        if redford.height - self.y > 800:
+            sideEnemies.remove(self)
+
+class UpDownEnemy: #A larger enemy that goes up and down
+    pic = image.load('pics/Enemies/redthing.png').convert_alpha()
+
+    def __init__(self, x, y):
+        self.minY = y #Also moves ina range, but up and down
+        self.maxY = y + 300
+        self.x = x
+        self.y = y
+        self.direction = 1
+    #The rest is basically the same idea as SideEnemy. Probably would have been
+    #better to combine these two classes
+    def move(self):
+        self.y += self.direction
+        if self.y == self.minY or self.y == self.maxY:
+            self.direction *= -1
+
+    def spike(self, target):
+        self.target = target
+        self.target.speed = -1
+        upDownEnemies.remove(self)
+        self.target.boosts = []
+        self.target.powerUp = "none"
+
+    def killed(self, target):
+        self.target = target
+        upDownEnemies.remove(self)
+        Boosts(0, 9).giveBoost(self.target)
+
+    def die(self):
+        upDownEnemies.remove(self)
+
+    def drawEnemy(self):
+        center(self.pic,screenCoords(self.x,self.y),True)
+
+    def updateEnemy(self):
+        self.move()
+        self.rect = Rect(self.x + 5, self.y + 20, 60, 60)
+        if redford.collideObject(self.x,self.y-self.pic.get_height()//2):
+            if redford.invinsible:
+                self.die()
+            else:
+                self.spike(redford)
+        elif redford.collideObject(self.x,self.y+self.pic.get_height()//2):
+            if redford.speed < 0:
+                self.killed(redford)
+        if redford.height - self.y > 800:
+            upDownEnemies.remove(self)
+
+def update():
+    '''This function basically updates the entire game by updating all classes,
+    spawning items, updating frame counts, etc.'''
+
+    global frameDelay
+    redford.updateChar()
+    for each in coinLocations:
+        each.updateCoins()
+    for each in redCoinLocations:
+        each.updateRedCoins()
+    for each in starLocations:
+        each.updateStars()
+    for each in blockLocations:
+        each.updateBlocks()
+    for each in itemBlocks:
+        each.updateBlocks()
+    for each in sideEnemies:
+        each.updateEnemy()
+    for each in upDownEnemies:
+        each.updateEnemy()
+    for each in powerUps:
+        each.updatePUp()
+    frameDelay = (frameDelay - 1) % 15
+    countDown()
+    spawnItems()
+
+
+
+def drawScene():
+    '''Draws the entire game out for the current frame'''
+    screen.fill((0, 0, 0))
+    drawBg(screen,redford.height)
+    for each in coinLocations:
+        each.drawItem()
+    for each in redCoinLocations:
+        each.drawRedCoin()
+    for each in starLocations:
+        each.drawItem()
+    for each in blockLocations:
+        each.drawItem()
+    for each in itemBlocks:
+        each.drawSelf()
+    for each in sideEnemies:
+        each.drawEnemy()
+    for each in upDownEnemies:
+        each.drawEnemy()
+    for each in powerUps:
+        each.drawPUp()
+    redford.drawChar()
+    drawCountDown()
+    drawTopPanel()
+    levelChanger()
+    
+#Levels-----------------------------------------------------------------------------------------
+def checkEndLevel(currentLevel):
+    '''Check if the player has reached the end of the level'''
+    if redford.height >= (10000-600)*10*currentLevel:
+        return True
+    return False
+
+def endLevel():
+    '''Ends the level by pausing the game, increasing the level by 1,
+    and giving the player a boost after the pause ends'''
+    global currentLevel, levelBonus
+    levelBonus = 50000*currentLevel #The level bonus increases each level
+    currentLevel += 1
+    time.wait(3000)
+    Boosts(100,15).giveBoost(redford)
+    
+newLevelFont = font.Font("Twelve Ton Goldfish.ttf",20)
+smallFont = font.Font("Twelve Ton Goldfish.ttf",20) 
+#Note: I used transform instead of just changing the font size since this font is
+#weird and only comes in one size.
+
+def newLevelAnimation():
+    '''Draws all the things when the level changes'''
+    
+    levelTxt = transform.smoothscale(countDownTxt.render('Level'+str(currentLevel+1),True,(255,165,0)),(400,125))
+    bonusTxt = transform.smoothscale(countDownTxt.render('Level Bonus:'+" "+str(levelBonus+50000),True,(255,165,0)),(300,90))
+    center(stageTxt,(400,80),True)
+    center(clearedTxt,(400,250),True)
+    center(bonusTxt,(400,550),True)
+    center(levelTxt,(400,375),True)
+    
+def levelChanger():
+    '''Everything that happens when the level ends'''
+    if checkEndLevel(currentLevel):
+        newLevelAnimation()
+        display.flip()
+        endLevel()
+
+
+#---------------------------------------------------------------------------------------------       
+#"Utility" Functions, ones we use to save time and thinking---------------
+def center(pic,coords,blitFlag):
+    '''Returns the coords of where to blit the image such that it is
+    centered at the given coords and blits the image in the center
+    if blitFlag is passed in as True.'''
+    coords = coords[0]-pic.get_width()//2,coords[1]-pic.get_height()//2
+    if blitFlag:
+        screen.blit(pic,coords)
+    return coords
+        
+def screenCoords(x,y):
+    '''Converts global coordinates to screen, for blitting '''
+    return (x,redford.height + 600 - y)
+
+#-------------------------------------------------------------------------------
+redford = Character() #The player (named for the character's name)
+screen = display.set_mode((800, 600))
+display.set_caption('Mega Jump')
+running = True
+frameDelay = 15
+gameClock = time.Clock()
+currentLevel = 1
+
+#Class Instances Lists----------------------------------------------------------
+coinLocations = []
+redCoinLocations = []
+starLocations = []
+blockLocations = []
+itemBlocks = []
+sideEnemies = []
+upDownEnemies = []
+powerUps = []
+
+#-------------------------------------------------------------------------------
+
+def writeScore():
+    '''I really screwed up the code in this program, making it hard to transfer
+    info from one program to another. The only way I could think of was by
+    writing to a file and retrieving the file in the next program (dieScreen.py)'''
+    outFile = open("score.txt","w")
+    outFile.write(str(getScore()))
+    outFile.close()
+
+def endGame():
+    global countDownTxt
+    '''Quits and opens dieScreen. Also passes the score info to dieScreen'''
+    quit()
+    del countDownTxt
+    font.quit()
+    writeScore()
+    import dieScreen
+#MAIN GAME LOOP-----------------------------------------------------------------------
+def initializeGame():
+    global updateSeconds,currentSecond,startFlag,running,spawningHeight,mapHeight,randomFlag,currentItemList,frameDelay,startFrame,currentLevel, levelBonus,mx,my,keys,mb,screen
+    global countDownTxt,stageTxt,clearedTxt
+    init()
+    screen = display.set_mode((800,600))
+    display.set_caption('Mega Jump')
+    time.set_timer(USEREVENT,1000)
+    countDownTxt = font.Font("Twelve Ton Goldfish.ttf",250)
+    stageTxt = transform.scale(countDownTxt.render('Stage',True,(255,165,0)),(500,175))
+    clearedTxt = transform.scale(countDownTxt.render('Cleared!',True,(255,165,0)),(500,175))
+    updateSeconds = False
+    currentSecond = 3
+    startFlag = False
+    startFrame = 0
+    running = True
+    spawningHeight = 650
+    mapHeight = 0
+    randomFlag = False
+    currentItemList = getPattern(0)
+    frameDelay = 15
+    currentLevel = 1
+    levelBonus = 0
+    gameClock = time.Clock()
+def mainGame():
+    global updateSeconds,currentSecond,startFlag,running,spawningHeight,mapHeight,randomFlag,currentItemList,frameDelay,startFrame,currentLevel, levelBonus,mx,my,keys,mb,screen
+    global countDownTxt
+    initializeGame()
+    
+    while running:
+        for evt in event.get():
+            if evt.type == QUIT:
+                running = False
+            if evt.type == USEREVENT: #The event we created at the beginning to make an
+                #event every second
+                updateSeconds = True
+                
+        mx, my = mouse.get_pos()
+        mb = mouse.get_pressed()
+        keys = key.get_pressed()
+        update()
+        drawScene()
+        
+        gameClock.tick(120)
+        display.flip()
+        
+    endGame()
+mainGame()
