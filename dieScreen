@@ -1,0 +1,72 @@
+from pygame import*
+
+init()
+
+screen = display.set_mode((800,600))
+display.set_caption("Mega Jump")
+running = True
+mainFont = font.Font("Twelve Ton Goldfish.ttf",60)
+smallFont = font.Font("Twelve Ton Goldfish.ttf",45)
+
+def center(pic,coords,blitFlag):
+    '''Returns the coords of where to blit the image such that it is
+    centered at the given coords and blits the image in the center
+    if blitFlag is passed in as True.'''
+    coords = coords[0]-pic.get_width()//2,coords[1]-pic.get_height()//2
+    if blitFlag:
+        screen.blit(pic,coords)
+    return coords
+
+def retrieveScore():
+    return open("score.txt").read()
+
+
+backgroundPic = image.load("pics/titleScreen/background.png").convert()
+gameOverTxt = image.load("pics/dieScreenPics/gameOver.png").convert_alpha()
+clickTxt = smallFont.render("Click anywhere to close.",True,(255,135,0))
+scoreTxt = mainFont.render("Score:"+" "+retrieveScore(),True,(255,135,0))
+
+
+def background():
+    screen.blit(backgroundPic,(0,0))
+    center(gameOverTxt,(400,225),True)
+    center(clickTxt,(400,575),True)
+    center(scoreTxt,(400,300),True)
+
+
+
+def pressButtons():
+    global running
+    
+    if mb[0] == 1:
+
+        running = False
+    
+
+        
+    
+
+                         
+def drawScene():
+    screen.fill((0,0,0))
+    background()
+    
+
+
+while running:
+    for evt in event.get():
+        if evt.type == QUIT:
+            running = False
+
+    mx,my = mouse.get_pos()
+    mb = mouse.get_pressed()
+    pressButtons()
+    drawScene()
+    display.flip()
+    
+quit()
+
+
+        
+
+
